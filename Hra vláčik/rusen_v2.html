@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Rušeň a mince – verzia 2</title>
+  <style>
+    /* Takto vyzerá stránka: tmavé pozadie a hra v strede */
+    body {
+      background: #222;
+      color: white;
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+    canvas {
+      border: 6px solid #8b5a2b;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🚂 Rušeň a zlaté mince – verzia 2</h1>
+  <p>Ovládaj rušeň šípkami. Zbieraj mince. Nenaraz do steny ani do vagóna!</p>
+  <p>Body: <b id="body">0</b></p>
+
+  <!-- Canvas = "plátno", na ktoré budeme kresliť hru -->
+  <canvas id="platno" width="600" height="600"></canvas>
+
+  <script>
+    // =========================================================
+    //  1. NASTAVENIA HRY
+    // =========================================================
+
+    // Nájdeme si plátno a "štetec" (context), ktorým budeme kresliť
+    const platno = document.getElementById("platno");
+    const stetec = platno.getContext("2d");
+
+    // Hracia plocha je rozdelená na štvorčeky (ako šachovnica).
+    // POZOR: obrázky rušňa a vagónov sú nakreslené presne pre 40 bodov.
+    const VELKOST_POLICKA = 40;
+    const POCET_POLICOK = platno.width / VELKOST_POLICKA;   // 600 / 40 = 15 políčok
+
+    // Ako rýchlo sa hra hýbe (v milisekundách). Menšie číslo = rýchlejšia hra.
+    const RYCHLOST = 180;
+
+    // Vagóny budú mať rôzne farby – striedajú sa podľa tohto zoznamu
+    const FARBY_VAGONOV = ["#1e6fd9", "#2e9e44", "#e08a1e", "#8e44ad"];
+
+
+    // =========================================================
+    //  2. PREMENNÉ – veci, ktoré sa počas hry menia
+    // =========================================================
+
+    // Vlak je ZOZNAM (pole) políčok. Prvé políčko [0] je rušeň,
+    // všetky ďalšie sú vagóny. Každé políčko má súradnice x a y.
+    let vlak;
+
+    // Smer, ktorým ide rušeň (dx = doprava/doľava, dy = dole/hore)
+    let dx;
+    let dy;
+
+    // Rušeň kreslíme z boku. Keď ide doľava, musíme ho otočiť (zrkadliť).
+    // Keď ide hore alebo dole, necháme ho otočeného tak, ako bol.
+    let rusenIdeDolava;
+
+    // Kde leží minca
+    let minca;
+
+    // Koľko bodov má hráč
+    let body;
+
+    // Či hra skončila
+    let koniecHry;
+
+    // Počítadlo krokov – používame ho na točenie kolies a dym z komína
+    let pocitadloKrokov = 0;
+
+
+    // =========================================================
+    //  3. ZAČIATOK HRY – nastavíme všetko na začiatok
+    // =========================================================
+    function novaHra() {
+      // Rušeň + 2 vagóny za ním (vagóny sú naľavo od rušňa)
+      vlak = [
+        { x: 5, y: 7 },   // rušeň
+        { x: 4, y: 7 },   // 1. vagón
+        { x: 3, y: 7 }    // 2. vagón
+      ];
+
+      // Na začiatku ide vlak doprava
+      dx = 1;
+      dy = 0;
+      rusenIdeDolava = false;
+
+      body = 0;
+      koniecHry = false;
+
+      polozMincu();
+    }
+
+
+    // =========================================================
+    //  4. MINCA – položíme ju na náhodné miesto
+    // =========================================================
+    function polozMincu() {
+      minca = {
+        x: Math.floor(Math.random() * POCET_POLICOK),
+        y: Math.floor(Math.random() * POCET_POLICOK)
+      };
+
+      // Ak by minca padla priamo na vlak, skúsime to znova
+      for (let i = 0; i < vlak.length; i++) {
+        if (vlak[i].x === minca.x && vlak[i].y === minca.y) {
+          polozMincu();
+          return;
+        }
+      }
+    }
+
+
+    // =========================================================
+    //  5. OVLÁDANIE ŠÍPKAMI
+    // =========================================================
+    document.addEventListener("keydown", function (udalost) {
+      const klaves = udalost.key;
+
+      // Vlak sa nemôže otočiť o 180° (priamo do svojho vagóna)
+      if (klaves === "ArrowLeft" && dx !== 1) {
+        dx = -1; dy = 0;
+      }
+      if (klaves === "ArrowRight" && dx !== -1) {
+        dx = 1; dy = 0;
+      }
+      if (klaves === "ArrowUp" && dy !== 1) {
+        dx = 0; dy = -1;
+      }
+      if (klaves === "ArrowDown" && dy !== -1) {
+        dx = 0; dy = 1;
+      }
+
+      // Medzerník spustí novú hru, keď hra skončila
+      if (klaves === " " && koniecHry) {
+        novaHra();
+      }
+
+      // Šípky by inak posúvali celú stránku – to nechceme
+      if (klaves.startsWith("Arrow") || klaves === " ") {
+        udalost.preventDefault();
+      }
+    });
+
+
+    // =========================================================
+    //  6. POHYB VLAKU – toto je srdce celej hry
+    // =========================================================
+    function pohniVlakom() {
+      // Nové miesto rušňa = staré miesto + smer
+      const novyRusen = {
+        x: vlak[0].x + dx,
+        y: vlak[0].y + dy
+      };
+
+      // Zapamätáme si, či sa má rušeň kresliť otočený doľava
+      if (dx === -1) rusenIdeDolava = true;
+      if (dx === 1)  rusenIdeDolava = false;
+
+      // --- Narazil rušeň do steny? ---
+      if (novyRusen.x < 0 || novyRusen.x >= POCET_POLICOK ||
+          novyRusen.y < 0 || novyRusen.y >= POCET_POLICOK) {
+        koniecHry = true;
+        return;
+      }
+
+      // --- Narazil rušeň do vlastného vagóna? ---
+      for (let i = 0; i < vlak.length; i++) {
+        if (vlak[i].x === novyRusen.x && vlak[i].y === novyRusen.y) {
+          koniecHry = true;
+          return;
+        }
+      }
+
+      // TRIK: Pridáme nový rušeň na ZAČIATOK vlaku...
+      vlak.unshift(novyRusen);
+
+      // --- Zjedol rušeň mincu? ---
+      if (novyRusen.x === minca.x && novyRusen.y === minca.y) {
+        // Áno! Posledný vagón NEodstránime – vlak je o 1 dlhší.
+        body = body + 1;
+        polozMincu();
+      } else {
+        // Nie. ...a posledný vagón odstránime z KONCA.
+        vlak.pop();
+      }
+    }
+
+
+    // =========================================================
+    //  7. POMOCNÉ KRESLIACE FUNKCIE
+    //     (aby sme nemuseli stále písať to isté dookola)
+    // =========================================================
+
+    // Nakreslí vyplnený obdĺžnik danou farbou
+    function obdlznik(x, y, sirka, vyska, farba) {
+      stetec.fillStyle = farba;
+      stetec.fillRect(x, y, sirka, vyska);
+    }
+
+    // Nakreslí vyplnený kruh danou farbou
+    function kruh(x, y, polomer, farba) {
+      stetec.fillStyle = farba;
+      stetec.beginPath();
+      stetec.arc(x, y, polomer, 0, Math.PI * 2);
+      stetec.fill();
+    }
+
+    // Nakreslí koleso so špicou, ktorá sa točí
+    function koleso(x, y, polomer) {
+      kruh(x, y, polomer, "#222");            // pneumatika
+      kruh(x, y, polomer - 2, "#888");        // disk
+      kruh(x, y, 1.5, "#222");                // stred
+
+      // Špica: otáča sa podľa počítadla krokov (uhol v radiánoch)
+      const uhol = pocitadloKrokov * 0.8;
+      stetec.strokeStyle = "#222";
+      stetec.lineWidth = 1.5;
+      stetec.beginPath();
+      stetec.moveTo(x - Math.cos(uhol) * (polomer - 2), y - Math.sin(uhol) * (polomer - 2));
+      stetec.lineTo(x + Math.cos(uhol) * (polomer - 2), y + Math.sin(uhol) * (polomer - 2));
+      stetec.stroke();
+    }
+
+
+    // =========================================================
+    //  8. KRESLENIE JEDNOTLIVÝCH VECÍ
+    // =========================================================
+
+    // Tráva ako šachovnica – dva odtiene zelenej sa striedajú
+    function nakresliTravu() {
+      for (let x = 0; x < POCET_POLICOK; x++) {
+        for (let y = 0; y < POCET_POLICOK; y++) {
+          // (x + y) je párne alebo nepárne -> vznikne šachovnica
+          let farba;
+          if ((x + y) % 2 === 0) {
+            farba = "#4c9a4c";
+          } else {
+            farba = "#44904a";
+          }
+          obdlznik(x * VELKOST_POLICKA, y * VELKOST_POLICKA, VELKOST_POLICKA, VELKOST_POLICKA, farba);
+        }
+      }
+    }
+
+    // Zlatá minca so znakom eura
+    function nakresliMincu() {
+      const stredX = minca.x * VELKOST_POLICKA + VELKOST_POLICKA / 2;
+      const stredY = minca.y * VELKOST_POLICKA + VELKOST_POLICKA / 2;
+
+      kruh(stredX + 2, stredY + 2, 15, "rgba(0, 0, 0, 0.3)");  // tieň
+      kruh(stredX, stredY, 15, "#c98f00");                       // tmavý okraj
+      kruh(stredX, stredY, 12, "gold");                          // zlatý stred
+      kruh(stredX - 5, stredY - 5, 3, "#fff6b0");                // lesk (odlesk svetla)
+
+      // Znak eura v strede
+      stetec.fillStyle = "#a06800";
+      stetec.font = "bold 18px Arial";
+      stetec.textAlign = "center";
+      stetec.textBaseline = "middle";
+      stetec.fillText("€", stredX, stredY + 1);
+    }
+
+    // Spriahadlá (háky) medzi vagónmi – čiara od stredu k stredu
+    function nakresliSpriahadla() {
+      stetec.strokeStyle = "#333";
+      stetec.lineWidth = 4;
+      for (let i = 1; i < vlak.length; i++) {
+        const predny = vlak[i - 1];
+        const zadny = vlak[i];
+        stetec.beginPath();
+        stetec.moveTo(predny.x * VELKOST_POLICKA + 20, predny.y * VELKOST_POLICKA + 28);
+        stetec.lineTo(zadny.x * VELKOST_POLICKA + 20, zadny.y * VELKOST_POLICKA + 28);
+        stetec.stroke();
+      }
+    }
+
+    // RUŠEŇ (parná lokomotíva) – kreslíme ho z boku, otočený doprava.
+    // Súradnice vnútri sú od 0 do 40 (jedno políčko).
+    function nakresliRusen(kus) {
+      stetec.save();   // zapamätáme si nastavenie štetca
+
+      // Presunieme "začiatok súradníc" na políčko rušňa
+      stetec.translate(kus.x * VELKOST_POLICKA, kus.y * VELKOST_POLICKA);
+
+      // Ak ide doľava, obrázok zrkadlovo otočíme (ako v zrkadle)
+      if (rusenIdeDolava) {
+        stetec.translate(VELKOST_POLICKA, 0);
+        stetec.scale(-1, 1);
+      }
+
+      // Dym z komína – obláčiky striedajú veľkosť
+      const velkyObl = pocitadloKrokov % 2 === 0;
+      kruh(28, 4, velkyObl ? 4 : 3, "rgba(230, 230, 230, 0.9)");
+      kruh(22, 1, velkyObl ? 2 : 3, "rgba(230, 230, 230, 0.7)");
+
+      obdlznik(26, 6, 6, 9, "#222");         // komín
+      obdlznik(25, 5, 8, 2, "#444");         // vrch komína
+      obdlznik(15, 14, 20, 16, "#c0392b");   // kotol (dlhá časť vpredu)
+      obdlznik(15, 14, 20, 3, "#e05545");    // svetlý pásik na kotli
+      obdlznik(3, 7, 13, 23, "#a93226");     // kabína rušňovodiča
+      obdlznik(1, 4, 17, 4, "#333");         // strecha kabíny
+      obdlznik(6, 11, 7, 7, "#9fd8ff");      // okno kabíny
+      kruh(36, 19, 2.5, "#ffe066");          // predné svetlo
+
+      // Pluh vpredu (trojuholník)
+      stetec.fillStyle = "#555";
+      stetec.beginPath();
+      stetec.moveTo(34, 26);
+      stetec.lineTo(39, 33);
+      stetec.lineTo(34, 33);
+      stetec.fill();
+
+      obdlznik(2, 29, 34, 3, "#222");        // podvozok
+      koleso(10, 33, 6);                     // veľké zadné koleso
+      koleso(22, 34, 5);                     // kolesá vpredu
+      koleso(31, 34, 5);
+
+      stetec.restore();   // vrátime štetec do pôvodného stavu
+    }
+
+    // VAGÓN – osobný vagón z boku
+    function nakresliVagon(kus, farba) {
+      stetec.save();
+      stetec.translate(kus.x * VELKOST_POLICKA, kus.y * VELKOST_POLICKA);
+
+      obdlznik(1, 6, 38, 4, "#333");         // strecha
+      obdlznik(3, 9, 34, 21, farba);         // telo vagóna
+      obdlznik(3, 23, 34, 2, "white");       // biely pásik
+      obdlznik(6, 12, 11, 8, "#9fd8ff");     // ľavé okno
+      obdlznik(23, 12, 11, 8, "#9fd8ff");    // pravé okno
+      obdlznik(2, 29, 36, 3, "#222");        // podvozok
+      koleso(11, 34, 4.5);                   // kolesá
+      koleso(29, 34, 4.5);
+
+      stetec.restore();
+    }
+
+    // Nakreslí celú hru
+    function nakresli() {
+      nakresliTravu();
+      nakresliMincu();
+      nakresliSpriahadla();
+
+      // Vagóny kreslíme od konca, rušeň nakoniec (aby bol navrchu)
+      for (let i = vlak.length - 1; i >= 1; i--) {
+        // Farbu vyberieme zo zoznamu. Znak % znamená "zvyšok po delení",
+        // takže keď farby dôjdu, začne sa znova od prvej.
+        const farba = FARBY_VAGONOV[(i - 1) % FARBY_VAGONOV.length];
+        nakresliVagon(vlak[i], farba);
+      }
+      nakresliRusen(vlak[0]);
+
+      // Ukážeme body na stránke
+      document.getElementById("body").textContent = body;
+
+      // Ak hra skončila, napíšeme to veľkým písmom
+      if (koniecHry) {
+        obdlznik(0, 0, platno.width, platno.height, "rgba(0, 0, 0, 0.6)");
+
+        stetec.fillStyle = "white";
+        stetec.textAlign = "center";
+        stetec.textBaseline = "middle";
+        stetec.font = "bold 48px Arial";
+        stetec.fillText("KONIEC HRY", platno.width / 2, platno.height / 2 - 20);
+        stetec.font = "22px Arial";
+        stetec.fillText("Stlač MEDZERNÍK pre novú hru", platno.width / 2, platno.height / 2 + 30);
+      }
+    }
+
+
+    // =========================================================
+    //  9. HERNÁ SLUČKA – opakuje sa stále dookola
+    // =========================================================
+    function krokHry() {
+      if (!koniecHry) {
+        pohniVlakom();
+        pocitadloKrokov = pocitadloKrokov + 1;   // kolesá sa točia, len keď vlak ide
+      }
+      nakresli();
+    }
+
+    // Spustíme hru...
+    novaHra();
+    // ...a každých 180 ms zavoláme funkciu krokHry
+    setInterval(krokHry, RYCHLOST);
+  </script>
+
+</body>
+</html>

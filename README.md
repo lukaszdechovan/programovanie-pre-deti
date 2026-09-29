@@ -1,2 +1,2 @@
-# programovanie-pre-deti
-Projekty slúžiace pre výučbu programovania pre deti
+## Programovanie pre deti
+Repozitár určený pre hry naprogramované jednoduchým spôsobom vhodným pre individuálnu výučbu programovania pre deti.

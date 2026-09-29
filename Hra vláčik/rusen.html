@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Rušeň a mince</title>
+  <style>
+    /* Takto vyzerá stránka: tmavé pozadie a hra v strede */
+    body {
+      background: #222;
+      color: white;
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+    canvas {
+      background: #3a7d3a;   /* zelená tráva */
+      border: 4px solid #8b5a2b;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🚂 Rušeň a zlaté mince</h1>
+  <p>Ovládaj rušeň šípkami. Zbieraj mince. Nenaraz do steny ani do vagóna!</p>
+  <p>Body: <b id="body">0</b></p>
+
+  <!-- Canvas = "plátno", na ktoré budeme kresliť hru -->
+  <canvas id="platno" width="600" height="600"></canvas>
+
+  <script>
+    // =========================================================
+    //  1. NASTAVENIA HRY
+    // =========================================================
+
+    // Nájdeme si plátno a "štetec" (context), ktorým budeme kresliť
+    const platno = document.getElementById("platno");
+    const stetec = platno.getContext("2d");
+
+    // Hracia plocha je rozdelená na štvorčeky (ako šachovnica)
+    const VELKOST_POLICKA = 30;                              // jeden štvorček má 30 x 30 bodov
+    const POCET_POLICOK = platno.width / VELKOST_POLICKA;    // 600 / 30 = 20 políčok na šírku aj výšku
+
+    // Ako rýchlo sa hra hýbe (v milisekundách). Menšie číslo = rýchlejšia hra.
+    const RYCHLOST = 150;
+
+
+    // =========================================================
+    //  2. PREMENNÉ – veci, ktoré sa počas hry menia
+    // =========================================================
+
+    // Vlak je ZOZNAM (pole) políčok. Prvé políčko [0] je rušeň,
+    // všetky ďalšie sú vagóny. Každé políčko má súradnice x a y.
+    let vlak;
+
+    // Smer, ktorým ide rušeň: dx = o koľko doprava, dy = o koľko dole
+    //   doprava: dx = 1,  dy = 0
+    //   doľava:  dx = -1, dy = 0
+    //   dole:    dx = 0,  dy = 1
+    //   hore:    dx = 0,  dy = -1
+    let dx;
+    let dy;
+
+    // Kde leží minca
+    let minca;
+
+    // Koľko bodov má hráč
+    let body;
+
+    // Či hra skončila
+    let koniecHry;
+
+
+    // =========================================================
+    //  3. ZAČIATOK HRY – nastavíme všetko na začiatok
+    // =========================================================
+    function novaHra() {
+      // Rušeň + 2 vagóny za ním (vagóny sú naľavo od rušňa)
+      vlak = [
+        { x: 5, y: 10 },   // rušeň
+        { x: 4, y: 10 },   // 1. vagón
+        { x: 3, y: 10 }    // 2. vagón
+      ];
+
+      // Na začiatku ide vlak doprava
+      dx = 1;
+      dy = 0;
+
+      body = 0;
+      koniecHry = false;
+
+      polozMincu();
+    }
+
+
+    // =========================================================
+    //  4. MINCA – položíme ju na náhodné miesto
+    // =========================================================
+    function polozMincu() {
+      // Math.random() dá náhodné číslo od 0 do 1.
+      // Vynásobíme ho počtom políčok a odrežeme desatinné miesta (Math.floor).
+      minca = {
+        x: Math.floor(Math.random() * POCET_POLICOK),
+        y: Math.floor(Math.random() * POCET_POLICOK)
+      };
+
+      // Ak by minca padla priamo na vlak, skúsime to znova
+      for (let i = 0; i < vlak.length; i++) {
+        if (vlak[i].x === minca.x && vlak[i].y === minca.y) {
+          polozMincu();
+          return;
+        }
+      }
+    }
+
+
+    // =========================================================
+    //  5. OVLÁDANIE ŠÍPKAMI
+    // =========================================================
+    // Keď hráč stlačí kláves, zavolá sa táto funkcia
+    document.addEventListener("keydown", function (udalost) {
+      const klaves = udalost.key;
+
+      // Pozor: vlak sa nemôže otočiť o 180° (priamo do svojho vagóna)!
+      // Preto napr. doľava smie ísť len vtedy, ak práve nejde doprava.
+      if (klaves === "ArrowLeft" && dx !== 1) {
+        dx = -1; dy = 0;
+      }
+      if (klaves === "ArrowRight" && dx !== -1) {
+        dx = 1; dy = 0;
+      }
+      if (klaves === "ArrowUp" && dy !== 1) {
+        dx = 0; dy = -1;
+      }
+      if (klaves === "ArrowDown" && dy !== -1) {
+        dx = 0; dy = 1;
+      }
+
+      // Medzerník spustí novú hru, keď hra skončila
+      if (klaves === " " && koniecHry) {
+        novaHra();
+      }
+
+      // Šípky by inak posúvali celú stránku – to nechceme
+      if (klaves.startsWith("Arrow") || klaves === " ") {
+        udalost.preventDefault();
+      }
+    });
+
+
+    // =========================================================
+    //  6. POHYB VLAKU – toto je srdce celej hry
+    // =========================================================
+    function pohniVlakom() {
+      // Nové miesto rušňa = staré miesto + smer
+      const novyRusen = {
+        x: vlak[0].x + dx,
+        y: vlak[0].y + dy
+      };
+
+      // --- Narazil rušeň do steny? ---
+      if (novyRusen.x < 0 || novyRusen.x >= POCET_POLICOK ||
+          novyRusen.y < 0 || novyRusen.y >= POCET_POLICOK) {
+        koniecHry = true;
+        return;
+      }
+
+      // --- Narazil rušeň do vlastného vagóna? ---
+      for (let i = 0; i < vlak.length; i++) {
+        if (vlak[i].x === novyRusen.x && vlak[i].y === novyRusen.y) {
+          koniecHry = true;
+          return;
+        }
+      }
+
+      // TRIK: Pridáme nový rušeň na ZAČIATOK vlaku...
+      vlak.unshift(novyRusen);
+
+      // --- Zjedol rušeň mincu? ---
+      if (novyRusen.x === minca.x && novyRusen.y === minca.y) {
+        // Áno! Pridáme bod a novú mincu.
+        // Posledný vagón NEodstránime – preto je vlak o 1 dlhší.
+        body = body + 1;
+        polozMincu();
+      } else {
+        // Nie. ...a posledný vagón odstránime z KONCA.
+        // Vďaka tomu vyzerá, akoby sa celý vlak posunul o políčko.
+        vlak.pop();
+      }
+    }
+
+
+    // =========================================================
+    //  7. KRESLENIE
+    // =========================================================
+
+    // Nakreslí zlatú mincu (žltý kruh)
+    function nakresliMincu() {
+      const stredX = minca.x * VELKOST_POLICKA + VELKOST_POLICKA / 2;
+      const stredY = minca.y * VELKOST_POLICKA + VELKOST_POLICKA / 2;
+
+      stetec.fillStyle = "gold";
+      stetec.beginPath();
+      stetec.arc(stredX, stredY, VELKOST_POLICKA / 2 - 4, 0, Math.PI * 2);
+      stetec.fill();
+
+      // Tmavší okraj, aby vyzerala ako minca
+      stetec.strokeStyle = "orange";
+      stetec.lineWidth = 3;
+      stetec.stroke();
+    }
+
+    // Nakreslí jeden kúsok vlaku (rušeň alebo vagón)
+    function nakresliKusVlaku(kus, farba) {
+      const x = kus.x * VELKOST_POLICKA;
+      const y = kus.y * VELKOST_POLICKA;
+
+      // Telo vagóna – farebný obdĺžnik (s malou medzerou okolo)
+      stetec.fillStyle = farba;
+      stetec.fillRect(x + 2, y + 2, VELKOST_POLICKA - 4, VELKOST_POLICKA - 4);
+
+      // Okienko – svetlomodrý štvorček v strede
+      stetec.fillStyle = "lightblue";
+      stetec.fillRect(x + 9, y + 9, VELKOST_POLICKA - 18, VELKOST_POLICKA - 18);
+    }
+
+    // Nakreslí celú hru
+    function nakresli() {
+      // Najprv všetko zmažeme (vyčistíme plátno)
+      stetec.clearRect(0, 0, platno.width, platno.height);
+
+      nakresliMincu();
+
+      // Vagóny sú modré, rušeň je červený.
+      // Kreslíme od konca, aby bol rušeň navrchu.
+      for (let i = vlak.length - 1; i >= 0; i--) {
+        if (i === 0) {
+          nakresliKusVlaku(vlak[i], "red");    // rušeň
+        } else {
+          nakresliKusVlaku(vlak[i], "blue");   // vagón
+        }
+      }
+
+      // Ukážeme body na stránke
+      document.getElementById("body").textContent = body;
+
+      // Ak hra skončila, napíšeme to veľkým písmom
+      if (koniecHry) {
+        stetec.fillStyle = "rgba(0, 0, 0, 0.6)";
+        stetec.fillRect(0, 0, platno.width, platno.height);
+
+        stetec.fillStyle = "white";
+        stetec.textAlign = "center";
+        stetec.font = "48px Arial";
+        stetec.fillText("KONIEC HRY", platno.width / 2, platno.height / 2);
+        stetec.font = "22px Arial";
+        stetec.fillText("Stlač MEDZERNÍK pre novú hru", platno.width / 2, platno.height / 2 + 40);
+      }
+    }
+
+
+    // =========================================================
+    //  8. HERNÁ SLUČKA – opakuje sa stále dookola
+    // =========================================================
+    function krokHry() {
+      if (!koniecHry) {
+        pohniVlakom();
+      }
+      nakresli();
+    }
+
+    // Spustíme hru...
+    novaHra();
+    // ...a povieme počítaču: "každých 150 ms zavolaj funkciu krokHry"
+    setInterval(krokHry, RYCHLOST);
+  </script>
+
+</body>
+</html>
